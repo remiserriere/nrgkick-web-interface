@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NRGKick Control Panel</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ NRGKick Control Panel</h1>
+            <div id="connection-status" class="status disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">Disconnected</span>
+            </div>
+        </header>
+
+        <!-- Connection Settings Panel -->
+        <section id="connection-panel" class="panel">
+            <h2>Connection Settings</h2>
+            <form id="connection-form">
+                <div class="form-group">
+                    <label for="charger-ip">Charger IP Address</label>
+                    <input type="text" id="charger-ip" placeholder="e.g., 192.168.1.100" required>
+                </div>
+                <div class="form-group">
+                    <label for="username">Username (optional)</label>
+                    <input type="text" id="username" placeholder="Username">
+                </div>
+                <div class="form-group">
+                    <label for="password">Password (optional)</label>
+                    <input type="password" id="password" placeholder="Password">
+                </div>
+                <div class="button-group">
+                    <button type="submit" class="btn btn-primary">Connect</button>
+                    <button type="button" id="disconnect-btn" class="btn btn-secondary" disabled>Disconnect</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Charger Status Panel -->
+        <section id="status-panel" class="panel hidden">
+            <h2>Charger Status</h2>
+            <div class="status-grid">
+                <div class="status-card">
+                    <div class="status-label">Charging State</div>
+                    <div class="status-value" id="charging-state">--</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">Power</div>
+                    <div class="status-value" id="power-value">-- kW</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">Energy Session</div>
+                    <div class="status-value" id="energy-session">-- kWh</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">Current</div>
+                    <div class="status-value" id="current-value">-- A</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">Voltage</div>
+                    <div class="status-value" id="voltage-value">-- V</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">Temperature</div>
+                    <div class="status-value" id="temperature-value">-- °C</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">Vehicle Connected</div>
+                    <div class="status-value" id="vehicle-connected">--</div>
+                </div>
+                <div class="status-card">
+                    <div class="status-label">Current Limit</div>
+                    <div class="status-value" id="current-limit">-- A</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Controls Panel -->
+        <section id="controls-panel" class="panel hidden">
+            <h2>Charger Controls</h2>
+            <div class="controls-grid">
+                <div class="control-group">
+                    <h3>Charging Control</h3>
+                    <div class="button-group">
+                        <button id="start-charging-btn" class="btn btn-success">Start Charging</button>
+                        <button id="stop-charging-btn" class="btn btn-danger">Stop Charging</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <h3>Current Limit</h3>
+                    <div class="slider-container">
+                        <input type="range" id="current-slider" min="6" max="32" value="16" step="1">
+                        <div class="slider-labels">
+                            <span>6A</span>
+                            <span id="current-slider-value">16A</span>
+                            <span>32A</span>
+                        </div>
+                    </div>
+                    <button id="set-current-btn" class="btn btn-primary">Set Current Limit</button>
+                </div>
+                <div class="control-group">
+                    <h3>Phases</h3>
+                    <div class="button-group phase-buttons">
+                        <button id="phase-1-btn" class="btn btn-secondary">1 Phase</button>
+                        <button id="phase-3-btn" class="btn btn-secondary">3 Phases</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Info Panel -->
+        <section id="info-panel" class="panel hidden">
+            <h2>Device Information</h2>
+            <div class="info-grid">
+                <div class="info-row">
+                    <span class="info-label">Serial Number:</span>
+                    <span class="info-value" id="serial-number">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Firmware Version:</span>
+                    <span class="info-value" id="firmware-version">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Model:</span>
+                    <span class="info-value" id="model">--</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Total Energy:</span>
+                    <span class="info-value" id="total-energy">-- kWh</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Error Messages -->
+        <div id="error-container" class="error-container hidden">
+            <div class="error-message">
+                <span id="error-text"></span>
+                <button id="close-error" class="close-btn">&times;</button>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="spinner"></div>
+            <span>Connecting...</span>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
