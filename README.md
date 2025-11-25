@@ -51,6 +51,23 @@ This interface uses the NRGKick JSON API. It tries multiple common API endpoints
 
 ## Installation
 
+### GitHub Pages (Recommended)
+
+This web interface can be hosted for free on GitHub Pages:
+
+1. Fork this repository to your GitHub account
+2. Go to **Settings** → **Pages**
+3. Under "Build and deployment", select **GitHub Actions** as the source
+4. The workflow will automatically deploy on push to the `main` branch
+5. Access your interface at `https://YOUR-USERNAME.github.io/nrgkick-web-interface/`
+
+**Example with URL parameters:**
+```
+https://YOUR-USERNAME.github.io/nrgkick-web-interface/?ip=192.168.1.100&user=admin&pass=mypassword
+```
+
+### Local Files
+
 Simply download the files and open `index.html` in a web browser:
 
 ```
@@ -61,7 +78,7 @@ nrgkick-web-interface/
 └── README.md   # Documentation
 ```
 
-### Hosting on a Web Server
+### Self-Hosted Web Server
 
 For production use, host the files on a web server (e.g., nginx, Apache, or a simple Python HTTP server):
 
