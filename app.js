@@ -20,6 +20,7 @@ class NRGKickController {
         this.isConnected = false;
         this.updateInterval = null;
         this.updateIntervalMs = 2000; // Update every 2 seconds
+        this.commandDelayMs = 500; // Delay before refreshing status after a command
 
         this.initElements();
         this.initEventListeners();
@@ -191,7 +192,7 @@ class NRGKickController {
         const response = await fetch(url, options);
         
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText} (${url})`);
         }
 
         return response.json();
@@ -469,7 +470,7 @@ class NRGKickController {
             }
 
             // Refresh status after command
-            setTimeout(() => this.fetchChargerStatus(), 500);
+            setTimeout(() => this.fetchChargerStatus(), this.commandDelayMs);
         } catch (error) {
             this.showError(`Failed to start charging: ${error.message}`);
         } finally {
@@ -507,7 +508,7 @@ class NRGKickController {
             }
 
             // Refresh status after command
-            setTimeout(() => this.fetchChargerStatus(), 500);
+            setTimeout(() => this.fetchChargerStatus(), this.commandDelayMs);
         } catch (error) {
             this.showError(`Failed to stop charging: ${error.message}`);
         } finally {
@@ -547,7 +548,7 @@ class NRGKickController {
             }
 
             // Refresh status after command
-            setTimeout(() => this.fetchChargerStatus(), 500);
+            setTimeout(() => this.fetchChargerStatus(), this.commandDelayMs);
         } catch (error) {
             this.showError(`Failed to set current limit: ${error.message}`);
         } finally {
@@ -590,7 +591,7 @@ class NRGKickController {
             this.phase3Btn.classList.toggle('active', phases === 3);
 
             // Refresh status after command
-            setTimeout(() => this.fetchChargerStatus(), 500);
+            setTimeout(() => this.fetchChargerStatus(), this.commandDelayMs);
         } catch (error) {
             this.showError(`Failed to set phases: ${error.message}`);
         } finally {
