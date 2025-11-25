@@ -1,6 +1,6 @@
 # NRGKick Web Interface
 
-A responsive web interface for NRGKick EV chargers that works on both mobile devices and desktop computers.
+A responsive web interface for NRGKick Gen2 EV chargers that works on both mobile devices and desktop computers.
 
 ## Features
 
@@ -12,6 +12,27 @@ A responsive web interface for NRGKick EV chargers that works on both mobile dev
 - **Authentication Support**: Basic authentication with username and password
 - **Dark Mode**: Automatic dark mode support based on system preferences
 - **Auto-refresh**: Status updates every 2 seconds when connected
+
+## NRGKick API
+
+This interface uses the NRGKick Gen2 local JSON API (HTTP REST). The API endpoints are:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/info` | GET | Device information (serial, model, versions, network) |
+| `/control` | GET | Read/write control settings (current, pause, phases) |
+| `/values` | GET | Real-time measurements (power, energy, temperatures) |
+
+### Control Parameters
+
+Control commands are sent as query parameters to `/control`:
+
+- `current_set=<6-32>` - Set charging current in Amps
+- `charge_pause=<0|1>` - 0 = charging enabled, 1 = charging paused
+- `phase_count=<1|2|3>` - Set number of phases (requires phase switching enabled in app)
+- `energy_limit=<Wh>` - Set energy limit in Watt-hours (0 = no limit)
+
+**Note:** The NRGKick device uses HTTP (not HTTPS) for local API access.
 
 ## Usage
 
@@ -39,15 +60,25 @@ index.html?ip=192.168.1.100&user=admin&pass=mypassword
 
 When the `ip` parameter is provided, the interface will automatically attempt to connect.
 
-## API Compatibility
+## Prerequisites
 
-This interface uses the NRGKick JSON API. It tries multiple common API endpoints to ensure compatibility with different firmware versions:
+### Enable Local API on NRGKick
 
-- `/api/status` - Charger status
-- `/api/info` - Device information
-- `/api/settings` - Configuration
-- `/api/charging` - Charging control
-- `/api/control` - Command control
+Before using this interface, you need to enable the local JSON API on your NRGKick device:
+
+1. Open the NRGKick app on your smartphone
+2. Go to **Extended** → **Local API**
+3. Enable **JSON API**
+4. (Optional) Enable **Authentication (JSON)** and set username/password
+5. Note the IP address shown in the app
+
+### Phase Switching
+
+To use the phase switching feature (1 phase / 3 phases):
+
+1. Open the NRGKick app
+2. Go to **Extended** → **Phase Switching**
+3. Enable the feature
 
 ## Installation
 
@@ -97,8 +128,10 @@ Then access the interface at `http://localhost:8080`
 When accessing the NRGKick charger from a web browser, CORS (Cross-Origin Resource Sharing) policies may apply. If you encounter connection issues:
 
 1. **Host the web interface on the same network** as the charger
-2. **Use a CORS proxy** if needed for development
-3. **Check if your NRGKick firmware** supports CORS headers
+2. **Use a browser extension** that disables CORS for development
+3. **Use a local proxy** to forward requests to the charger
+
+**Note:** The NRGKick Gen2 firmware should include CORS headers for local API access. If you still experience issues, check your firmware version is up to date.
 
 ## Browser Support
 
@@ -107,6 +140,27 @@ When accessing the NRGKick charger from a web browser, CORS (Cross-Origin Resour
 - Safari 12+
 - Edge 79+
 - Mobile browsers (iOS Safari, Chrome for Android)
+
+## Troubleshooting
+
+### Connection Failed
+
+1. Verify the IP address is correct
+2. Ensure the NRGKick is powered on and connected to WiFi
+3. Check that the JSON API is enabled in the NRGKick app
+4. If using authentication, verify username and password
+
+### Authentication Failed
+
+1. Ensure "Authentication (JSON)" is enabled in the NRGKick app
+2. Verify username and password are correct (case-sensitive)
+3. Try disabling and re-enabling authentication in the app
+
+### Phase Switching Not Working
+
+1. Enable "Phase Switching" in the NRGKick app (Extended → Phase Switching)
+2. Ensure your installation supports phase switching
+3. Check the response for error messages
 
 ## License
 

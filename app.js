@@ -1,8 +1,13 @@
 /**
  * NRGKick Control Panel - Main Application
  * 
- * This application provides a web interface for NRGKick EV chargers
- * using the JSON API. It supports URL parameters for configuration:
+ * This application provides a web interface for NRGKick Gen2 EV chargers
+ * using the local JSON API (HTTP REST).
+ * 
+ * API Endpoints (based on NRGKick Gen2 local API):
+ * - GET /info - Device information (serial, model, versions, network)
+ * - GET /control - Control settings (current_set, charge_pause, phases)
+ * - GET /values - Real-time measurements (power, energy, temperatures)
  * 
  * URL Parameters:
  * - ip: Charger IP address (e.g., ?ip=192.168.1.100)
@@ -10,7 +15,19 @@
  * - pass: Password for authentication (e.g., ?pass=secret)
  * 
  * Example: index.html?ip=192.168.1.100&user=admin&pass=mypassword
+ * 
+ * Note: The NRGKick device uses HTTP (not HTTPS) for local API access.
  */
+
+// Status codes from NRGKick API
+const STATUS_MAP = {
+    0: 'Unknown',
+    1: 'Standby',
+    2: 'Connected',
+    3: 'Charging',
+    6: 'Error',
+    7: 'Wakeup',
+};
 
 class NRGKickController {
     constructor() {
@@ -21,6 +38,7 @@ class NRGKickController {
         this.updateInterval = null;
         this.updateIntervalMs = 2000; // Update every 2 seconds
         this.commandDelayMs = 500; // Delay before refreshing status after a command
+        this.cachedDeviceInfo = null;
 
         this.initElements();
         this.initEventListeners();
@@ -151,10 +169,11 @@ class NRGKickController {
 
     /**
      * Build the API URL for a given endpoint
+     * NRGKick uses HTTP (not HTTPS) for local API access
      */
     buildAPIUrl(endpoint) {
-        const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
-        return `${protocol}://${this.chargerIP}/api${endpoint}`;
+        // Always use HTTP for NRGKick local API
+        return `http://${this.chargerIP}${endpoint}`;
     }
 
     /**
@@ -176,18 +195,22 @@ class NRGKickController {
 
     /**
      * Make an API request to the charger
+     * Handles both GET requests with query parameters and response parsing
      */
-    async apiRequest(endpoint, method = 'GET', body = null) {
-        const url = this.buildAPIUrl(endpoint);
+    async apiRequest(endpoint, params = null) {
+        let url = this.buildAPIUrl(endpoint);
+        
+        // Add query parameters if provided
+        if (params) {
+            const queryString = new URLSearchParams(params).toString();
+            url = `${url}?${queryString}`;
+        }
+
         const options = {
-            method,
+            method: 'GET',
             headers: this.getAuthHeaders(),
             mode: 'cors'
         };
-
-        if (body && method !== 'GET') {
-            options.body = JSON.stringify(body);
-        }
 
         const response = await fetch(url, options);
         
@@ -195,7 +218,14 @@ class NRGKickController {
             throw new Error(`HTTP ${response.status}: ${response.statusText} (${url})`);
         }
 
-        return response.json();
+        const data = await response.json();
+        
+        // Check for API error response
+        if (data.Response) {
+            throw new Error(data.Response);
+        }
+
+        return data;
     }
 
     /**
@@ -277,56 +307,53 @@ class NRGKickController {
     }
 
     /**
-     * Fetch charger device information
+     * Fetch charger device information from /info endpoint
+     * Sections: general, connector, grid, network, versions
      */
     async fetchChargerInfo() {
         try {
-            // NRGKick API endpoints - try different possible endpoints
-            const endpoints = ['/info', '/device', '/settings'];
-            let info = null;
-            
-            for (const endpoint of endpoints) {
-                try {
-                    info = await this.apiRequest(endpoint);
-                    break;
-                } catch (e) {
-                    continue;
-                }
-            }
+            // Request all info sections
+            const info = await this.apiRequest('/info', {
+                general: 1,
+                connector: 1,
+                grid: 1,
+                network: 1,
+                versions: 1
+            });
 
-            if (info) {
-                this.updateDeviceInfo(info);
-            }
+            this.cachedDeviceInfo = info;
+            this.updateDeviceInfo(info);
+            return info;
         } catch (error) {
             console.warn('Could not fetch device info:', error);
+            throw error;
         }
     }
 
     /**
-     * Fetch current charger status
+     * Fetch current charger status from /control and /values endpoints
      */
     async fetchChargerStatus() {
         try {
-            // NRGKick API - try different possible status endpoints
-            const endpoints = ['/status', '/charging', '/measurements'];
-            let status = null;
-            
-            for (const endpoint of endpoints) {
-                try {
-                    status = await this.apiRequest(endpoint);
-                    break;
-                } catch (e) {
-                    continue;
-                }
-            }
+            // Fetch control settings and real-time values in parallel
+            const [control, values] = await Promise.all([
+                this.apiRequest('/control'),
+                this.apiRequest('/values', {
+                    general: 1,
+                    energy: 1,
+                    powerflow: 1,
+                    temperatures: 1
+                })
+            ]);
 
-            if (status) {
-                this.updateStatusDisplay(status);
-            } else {
-                // If no specific endpoint works, try root endpoint
-                status = await this.apiRequest('');
-                this.updateStatusDisplay(status);
-            }
+            // Merge the data for display
+            const status = {
+                control,
+                values
+            };
+
+            this.updateStatusDisplay(status);
+            return status;
         } catch (error) {
             throw error;
         }
@@ -334,106 +361,143 @@ class NRGKickController {
 
     /**
      * Update the device information display
+     * Data structure from /info endpoint:
+     * - general: { serial_number, device_name, model_type, rated_current }
+     * - versions: { sw_sm, hw_sm }
+     * - connector: { phase_count, max_current, type, serial }
      */
     updateDeviceInfo(info) {
-        this.serialNumberEl.textContent = info.serial_number || info.serialNumber || info.sn || '--';
-        this.firmwareVersionEl.textContent = info.firmware_version || info.firmwareVersion || info.fw || '--';
-        this.modelEl.textContent = info.model || info.device_type || info.type || 'NRGKick';
+        // Get values from nested structure
+        const general = info.general || {};
+        const versions = info.versions || {};
+        const connector = info.connector || {};
         
-        if (info.total_energy !== undefined) {
-            this.totalEnergyEl.textContent = `${(info.total_energy / 1000).toFixed(2)} kWh`;
-        } else if (info.totalEnergy !== undefined) {
-            this.totalEnergyEl.textContent = `${(info.totalEnergy / 1000).toFixed(2)} kWh`;
-        }
+        this.serialNumberEl.textContent = general.serial_number || '--';
+        this.firmwareVersionEl.textContent = versions.sw_sm || versions.smartmodule || '--';
+        this.modelEl.textContent = general.model_type || 'NRGKick';
+        
+        // Total energy might come from /values endpoint, not /info
+        // We'll update this in updateStatusDisplay if available
     }
 
     /**
      * Update the status display with current values
+     * Data structure:
+     * - control: { current_set, charge_pause, energy_limit, phase_count }
+     * - values.general: { status, charging_rate, vehicle_connect_time }
+     * - values.energy: { total_charged_energy, charged_energy }
+     * - values.powerflow: { total_active_power, l1: {...}, l2: {...}, l3: {...} }
+     * - values.temperatures: { housing, connector_l1, connector_l2, connector_l3 }
      */
-    updateStatusDisplay(status) {
-        // Handle different possible API response formats
-        const chargingState = status.charging_state || status.chargingState || status.state || status.status;
-        const power = status.power || status.active_power || status.activePower || 0;
-        const energySession = status.energy_session || status.energySession || status.session_energy || 0;
-        const current = status.current || status.charging_current || status.chargingCurrent || 0;
-        const voltage = status.voltage || status.grid_voltage || status.gridVoltage || 0;
-        const temperature = status.temperature || status.device_temperature || status.deviceTemperature;
-        const vehicleConnected = status.vehicle_connected || status.vehicleConnected || status.connected;
-        const currentLimit = status.current_limit || status.currentLimit || status.max_current || status.maxCurrent || 0;
+    updateStatusDisplay(data) {
+        const control = data.control || {};
+        const values = data.values || {};
+        const general = values.general || {};
+        const energy = values.energy || {};
+        const powerflow = values.powerflow || {};
+        const temperatures = values.temperatures || {};
 
-        // Update charging state with appropriate styling
-        this.updateChargingState(chargingState);
+        // Get charging state from status code
+        const statusCode = general.status;
+        this.updateChargingState(statusCode);
 
-        // Update power display
+        // Update power display (value is in Watts, convert to kW)
+        const power = powerflow.total_active_power;
         if (typeof power === 'number') {
             this.powerValueEl.textContent = `${(power / 1000).toFixed(2)} kW`;
         }
 
-        // Update energy session
-        if (typeof energySession === 'number') {
-            this.energySessionEl.textContent = `${(energySession / 1000).toFixed(2)} kWh`;
+        // Update session energy (value is in Wh, convert to kWh)
+        const sessionEnergy = energy.charged_energy;
+        if (typeof sessionEnergy === 'number') {
+            this.energySessionEl.textContent = `${(sessionEnergy / 1000).toFixed(2)} kWh`;
         }
 
-        // Update current
-        if (typeof current === 'number') {
-            this.currentValueEl.textContent = `${current.toFixed(1)} A`;
+        // Update total energy
+        const totalEnergy = energy.total_charged_energy;
+        if (typeof totalEnergy === 'number') {
+            this.totalEnergyEl.textContent = `${(totalEnergy / 1000).toFixed(2)} kWh`;
         }
 
-        // Update voltage
-        if (typeof voltage === 'number') {
+        // Calculate total current from all phases
+        const l1 = powerflow.l1 || {};
+        const l2 = powerflow.l2 || {};
+        const l3 = powerflow.l3 || {};
+        const totalCurrent = (l1.current || 0) + (l2.current || 0) + (l3.current || 0);
+        if (totalCurrent > 0 || statusCode === 3) {
+            this.currentValueEl.textContent = `${totalCurrent.toFixed(1)} A`;
+        }
+
+        // Get voltage (use L1 voltage as reference, or max of all phases)
+        const voltage = Math.max(l1.voltage || 0, l2.voltage || 0, l3.voltage || 0);
+        if (voltage > 0) {
             this.voltageValueEl.textContent = `${voltage.toFixed(0)} V`;
         }
 
-        // Update temperature
+        // Update temperature (housing temperature)
+        const temperature = temperatures.housing;
         if (temperature !== undefined && temperature !== null) {
             this.temperatureValueEl.textContent = `${temperature.toFixed(1)} °C`;
         }
 
-        // Update vehicle connected status
-        if (vehicleConnected !== undefined) {
-            this.vehicleConnectedEl.textContent = vehicleConnected ? 'Yes' : 'No';
-            this.vehicleConnectedEl.className = `status-value ${vehicleConnected ? 'charging-active' : 'charging-stopped'}`;
-        }
+        // Update vehicle connected status (status >= 2 means connected)
+        const vehicleConnected = statusCode >= 2;
+        this.vehicleConnectedEl.textContent = vehicleConnected ? 'Yes' : 'No';
+        this.vehicleConnectedEl.className = `status-value ${vehicleConnected ? 'charging-active' : 'charging-stopped'}`;
 
-        // Update current limit
+        // Update current limit from control settings
+        const currentLimit = control.current_set;
         if (typeof currentLimit === 'number') {
             this.currentLimitEl.textContent = `${currentLimit} A`;
             this.currentSlider.value = currentLimit;
             this.currentSliderValue.textContent = `${currentLimit}A`;
             this.updateSliderBackground();
         }
+
+        // Update phase buttons based on current phase count
+        const phases = control.phase_count;
+        if (phases) {
+            this.phase1Btn.classList.toggle('active', phases === 1);
+            this.phase3Btn.classList.toggle('active', phases === 3);
+        }
     }
 
     /**
-     * Update the charging state display
+     * Update the charging state display based on status code
+     * Status codes:
+     * 0 - Unknown
+     * 1 - Standby (no vehicle)
+     * 2 - Connected (vehicle connected, not charging)
+     * 3 - Charging
+     * 6 - Error
+     * 7 - Wakeup
      */
-    updateChargingState(state) {
-        if (!state) {
+    updateChargingState(statusCode) {
+        if (statusCode === undefined || statusCode === null) {
             this.chargingStateEl.textContent = '--';
             this.chargingStateEl.className = 'status-value';
             return;
         }
 
-        const stateStr = String(state).toLowerCase();
-        let displayState = state;
+        const displayState = STATUS_MAP[statusCode] || 'Unknown';
         let stateClass = '';
 
-        // Map common charging states
-        if (stateStr.includes('charging') || stateStr.includes('active') || stateStr === 'c') {
-            displayState = 'Charging';
-            stateClass = 'charging-active';
-        } else if (stateStr.includes('ready') || stateStr.includes('connected') || stateStr === 'b') {
-            displayState = 'Ready to Charge';
-            stateClass = 'charging-ready';
-        } else if (stateStr.includes('idle') || stateStr.includes('standby') || stateStr === 'a') {
-            displayState = 'Idle';
-            stateClass = 'charging-stopped';
-        } else if (stateStr.includes('error') || stateStr.includes('fault')) {
-            displayState = 'Error';
-            stateClass = 'charging-error';
-        } else if (stateStr.includes('stopped') || stateStr.includes('paused')) {
-            displayState = 'Stopped';
-            stateClass = 'charging-stopped';
+        switch (statusCode) {
+            case 3: // Charging
+                stateClass = 'charging-active';
+                break;
+            case 2: // Connected
+            case 7: // Wakeup
+                stateClass = 'charging-ready';
+                break;
+            case 1: // Standby
+                stateClass = 'charging-stopped';
+                break;
+            case 6: // Error
+                stateClass = 'charging-error';
+                break;
+            default:
+                stateClass = '';
         }
 
         this.chargingStateEl.textContent = displayState;
@@ -441,33 +505,14 @@ class NRGKickController {
     }
 
     /**
-     * Start charging
+     * Start charging (disable charge pause)
+     * Uses GET /control?charge_pause=0
      */
     async startCharging() {
         try {
             this.startChargingBtn.disabled = true;
             
-            // Try different possible endpoints for starting charging
-            const endpoints = [
-                { endpoint: '/charging', body: { enabled: true } },
-                { endpoint: '/control', body: { command: 'start' } },
-                { endpoint: '/start', body: {} }
-            ];
-
-            let success = false;
-            for (const { endpoint, body } of endpoints) {
-                try {
-                    await this.apiRequest(endpoint, 'POST', body);
-                    success = true;
-                    break;
-                } catch (e) {
-                    continue;
-                }
-            }
-
-            if (!success) {
-                throw new Error('Could not start charging');
-            }
+            await this.apiRequest('/control', { charge_pause: 0 });
 
             // Refresh status after command
             setTimeout(() => this.fetchChargerStatus(), this.commandDelayMs);
@@ -479,33 +524,14 @@ class NRGKickController {
     }
 
     /**
-     * Stop charging
+     * Stop charging (enable charge pause)
+     * Uses GET /control?charge_pause=1
      */
     async stopCharging() {
         try {
             this.stopChargingBtn.disabled = true;
             
-            // Try different possible endpoints for stopping charging
-            const endpoints = [
-                { endpoint: '/charging', body: { enabled: false } },
-                { endpoint: '/control', body: { command: 'stop' } },
-                { endpoint: '/stop', body: {} }
-            ];
-
-            let success = false;
-            for (const { endpoint, body } of endpoints) {
-                try {
-                    await this.apiRequest(endpoint, 'POST', body);
-                    success = true;
-                    break;
-                } catch (e) {
-                    continue;
-                }
-            }
-
-            if (!success) {
-                throw new Error('Could not stop charging');
-            }
+            await this.apiRequest('/control', { charge_pause: 1 });
 
             // Refresh status after command
             setTimeout(() => this.fetchChargerStatus(), this.commandDelayMs);
@@ -518,6 +544,7 @@ class NRGKickController {
 
     /**
      * Set current limit
+     * Uses GET /control?current_set=<value>
      */
     async setCurrentLimit() {
         const newLimit = parseInt(this.currentSlider.value, 10);
@@ -525,27 +552,7 @@ class NRGKickController {
         try {
             this.setCurrentBtn.disabled = true;
             
-            // Try different possible endpoints for setting current
-            const endpoints = [
-                { endpoint: '/settings', body: { current_limit: newLimit } },
-                { endpoint: '/current', body: { limit: newLimit } },
-                { endpoint: '/control', body: { max_current: newLimit } }
-            ];
-
-            let success = false;
-            for (const { endpoint, body } of endpoints) {
-                try {
-                    await this.apiRequest(endpoint, 'POST', body);
-                    success = true;
-                    break;
-                } catch (e) {
-                    continue;
-                }
-            }
-
-            if (!success) {
-                throw new Error('Could not set current limit');
-            }
+            await this.apiRequest('/control', { current_set: newLimit });
 
             // Refresh status after command
             setTimeout(() => this.fetchChargerStatus(), this.commandDelayMs);
@@ -558,33 +565,15 @@ class NRGKickController {
 
     /**
      * Set number of phases
+     * Uses GET /control?phase_count=<value>
+     * Note: Phase switching must be enabled in the NRGKick app
      */
     async setPhases(phases) {
         try {
             const btn = phases === 1 ? this.phase1Btn : this.phase3Btn;
             btn.disabled = true;
             
-            // Try different possible endpoints for setting phases
-            const endpoints = [
-                { endpoint: '/settings', body: { phases: phases } },
-                { endpoint: '/phases', body: { count: phases } },
-                { endpoint: '/control', body: { phases: phases } }
-            ];
-
-            let success = false;
-            for (const { endpoint, body } of endpoints) {
-                try {
-                    await this.apiRequest(endpoint, 'POST', body);
-                    success = true;
-                    break;
-                } catch (e) {
-                    continue;
-                }
-            }
-
-            if (!success) {
-                throw new Error('Could not set phases');
-            }
+            await this.apiRequest('/control', { phase_count: phases });
 
             // Update button states
             this.phase1Btn.classList.toggle('active', phases === 1);
