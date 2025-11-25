@@ -221,6 +221,8 @@ class NRGKickController {
         const data = await response.json();
         
         // Check for API error response
+        // NRGKick returns {"Response": "error message"} for errors
+        // (e.g., "Charging pause is blocked by solar-charging")
         if (data.Response) {
             throw new Error(data.Response);
         }
@@ -420,12 +422,22 @@ class NRGKickController {
         }
 
         // Calculate total current from all phases
+        // For 3-phase charging, currents flow on all phases simultaneously
+        // For 1-phase charging, only L1 has current
         const l1 = powerflow.l1 || {};
         const l2 = powerflow.l2 || {};
         const l3 = powerflow.l3 || {};
-        const totalCurrent = (l1.current || 0) + (l2.current || 0) + (l3.current || 0);
-        if (totalCurrent > 0 || statusCode === 3) {
+        const l1Current = l1.current || 0;
+        const l2Current = l2.current || 0;
+        const l3Current = l3.current || 0;
+        
+        // Display total current (sum of all phases for 3-phase, L1 only for 1-phase)
+        const totalCurrent = l1Current + l2Current + l3Current;
+        if (totalCurrent > 0) {
             this.currentValueEl.textContent = `${totalCurrent.toFixed(1)} A`;
+        } else if (statusCode === 3) {
+            // Charging but no current yet
+            this.currentValueEl.textContent = '0.0 A';
         }
 
         // Get voltage (use L1 voltage as reference, or max of all phases)
