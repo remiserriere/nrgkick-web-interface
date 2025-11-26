@@ -187,14 +187,14 @@ class NRGKickController {
 
     /**
      * Check if proxy mode should be used
-     * Auto-detects based on protocol (HTTPS requires proxy for HTTP API)
+     * Defaults to false (direct mode) unless explicitly enabled with ?proxy=on
      */
     shouldUseProxy() {
         if (this.useProxy !== null) {
             return this.useProxy;
         }
-        // Auto-detect: use proxy if served over HTTPS (can't make HTTP requests from HTTPS page)
-        return window.location.protocol === 'https:';
+        // Default to direct mode - proxy must be explicitly enabled
+        return false;
     }
 
     /**

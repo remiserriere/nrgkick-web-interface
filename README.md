@@ -52,7 +52,7 @@ You can configure the connection via URL parameters:
 | `ip` | Charger IP address | `192.168.1.100` |
 | `user` | Username for authentication | `admin` |
 | `pass` | Password for authentication | `mypassword` |
-| `proxy` | Proxy mode: `auto`, `on`, or `off` | `auto` |
+| `proxy` | Proxy mode: `on` or `off` (default: `off`) | `on` |
 
 **Example URL:**
 ```
@@ -186,9 +186,8 @@ You can control proxy behavior with the `proxy` URL parameter:
 
 | Value | Behavior |
 |-------|----------|
-| `auto` | (Default) Use proxy when page is served over HTTPS |
-| `on` | Always use proxy mode |
-| `off` | Direct connection mode |
+| `on` | Use proxy mode (requests go to `/api/<ip>/<endpoint>`) |
+| `off` | (Default) Direct connection mode (requests go to `http://<ip>/<endpoint>`) |
 
 Example: `?ip=192.168.1.100&proxy=on`
 
