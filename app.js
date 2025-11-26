@@ -13,8 +13,16 @@
  * - ip: Charger IP address (e.g., ?ip=192.168.1.100)
  * - user: Username for authentication (e.g., ?user=admin)
  * - pass: Password for authentication (e.g., ?pass=secret)
+ * - proxy: Use proxy mode ('auto', 'on', 'off') - defaults to 'auto'
  * 
  * Example: index.html?ip=192.168.1.100&user=admin&pass=mypassword
+ * 
+ * Proxy Mode:
+ * When the web interface is hosted on a different origin (like GitHub Pages),
+ * CORS restrictions prevent direct API calls to the NRGKick device.
+ * The proxy server (server.js) solves this by:
+ * 1. Serving the web interface
+ * 2. Forwarding API requests to the NRGKick device
  * 
  * Note: The NRGKick device uses HTTP (not HTTPS) for local API access.
  */
@@ -39,6 +47,7 @@ class NRGKickController {
         this.updateIntervalMs = 2000; // Update every 2 seconds
         this.commandDelayMs = 500; // Delay before refreshing status after a command
         this.cachedDeviceInfo = null;
+        this.useProxy = null; // null = auto-detect, true = use proxy, false = direct
 
         this.initElements();
         this.initEventListeners();
@@ -133,6 +142,7 @@ class NRGKickController {
         const ip = urlParams.get('ip');
         const user = urlParams.get('user');
         const pass = urlParams.get('pass');
+        const proxy = urlParams.get('proxy');
 
         if (ip) {
             this.chargerIPInput.value = ip;
@@ -143,6 +153,14 @@ class NRGKickController {
         if (pass) {
             this.passwordInput.value = pass;
         }
+        
+        // Handle proxy mode setting
+        if (proxy === 'on') {
+            this.useProxy = true;
+        } else if (proxy === 'off') {
+            this.useProxy = false;
+        }
+        // Default (null or 'auto') = auto-detect
 
         // Auto-connect if IP is provided
         if (ip) {
@@ -168,11 +186,28 @@ class NRGKickController {
     }
 
     /**
+     * Check if proxy mode should be used
+     * Auto-detects based on protocol (HTTPS requires proxy for HTTP API)
+     */
+    shouldUseProxy() {
+        if (this.useProxy !== null) {
+            return this.useProxy;
+        }
+        // Auto-detect: use proxy if served over HTTPS (can't make HTTP requests from HTTPS page)
+        return window.location.protocol === 'https:';
+    }
+
+    /**
      * Build the API URL for a given endpoint
-     * NRGKick uses HTTP (not HTTPS) for local API access
+     * When using proxy: /api/<charger-ip>/<endpoint>
+     * Direct mode: http://<charger-ip>/<endpoint>
      */
     buildAPIUrl(endpoint) {
-        // Always use HTTP for NRGKick local API
+        if (this.shouldUseProxy()) {
+            // Use proxy endpoint
+            return `/api/${this.chargerIP}${endpoint}`;
+        }
+        // Direct mode - always use HTTP for NRGKick local API
         return `http://${this.chargerIP}${endpoint}`;
     }
 
@@ -196,6 +231,7 @@ class NRGKickController {
     /**
      * Make an API request to the charger
      * Handles both GET requests with query parameters and response parsing
+     * When using proxy, requests go to /api/<ip>/<endpoint> on the same origin
      */
     async apiRequest(endpoint, params = null) {
         let url = this.buildAPIUrl(endpoint);
@@ -208,9 +244,14 @@ class NRGKickController {
 
         const options = {
             method: 'GET',
-            headers: this.getAuthHeaders(),
-            mode: 'cors'
+            headers: this.getAuthHeaders()
         };
+        
+        // Only set mode to 'cors' for direct requests (non-proxy mode)
+        // Proxy requests are same-origin so no CORS needed
+        if (!this.shouldUseProxy()) {
+            options.mode = 'cors';
+        }
 
         const response = await fetch(url, options);
         
@@ -223,8 +264,12 @@ class NRGKickController {
         // Check for API error response
         // NRGKick returns {"Response": "error message"} for errors
         // (e.g., "Charging pause is blocked by solar-charging")
+        // Proxy server returns {"error": "message"} for proxy errors
         if (data.Response) {
             throw new Error(data.Response);
+        }
+        if (data.error) {
+            throw new Error(data.error);
         }
 
         return data;

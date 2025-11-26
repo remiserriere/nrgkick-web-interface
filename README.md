@@ -52,6 +52,7 @@ You can configure the connection via URL parameters:
 | `ip` | Charger IP address | `192.168.1.100` |
 | `user` | Username for authentication | `admin` |
 | `pass` | Password for authentication | `mypassword` |
+| `proxy` | Proxy mode: `auto`, `on`, or `off` | `auto` |
 
 **Example URL:**
 ```
@@ -92,10 +93,7 @@ This web interface can be hosted for free on GitHub Pages:
 4. The workflow will automatically deploy on push to the `main` branch
 5. Access your interface at `https://YOUR-USERNAME.github.io/nrgkick-web-interface/`
 
-**Example with URL parameters:**
-```
-https://YOUR-USERNAME.github.io/nrgkick-web-interface/?ip=192.168.1.100&user=admin&pass=mypassword
-```
+**⚠️ Important:** When hosted on GitHub Pages, you must run the **proxy server** on your local network to connect to your NRGKick device (see [Using the Proxy Server](#using-the-proxy-server-recommended) below).
 
 ### Local Files
 
@@ -103,15 +101,49 @@ Simply download the files and open `index.html` in a web browser:
 
 ```
 nrgkick-web-interface/
-├── index.html  # Main HTML file
-├── styles.css  # Stylesheet
-├── app.js      # Application logic
-└── README.md   # Documentation
+├── index.html   # Main HTML file
+├── styles.css   # Stylesheet
+├── app.js       # Application logic
+├── server.js    # Proxy server (Node.js)
+├── package.json # Node.js configuration
+└── README.md    # Documentation
 ```
 
-### Self-Hosted Web Server
+### Using the Proxy Server (Recommended)
 
-For production use, host the files on a web server (e.g., nginx, Apache, or a simple Python HTTP server):
+The proxy server solves CORS issues by forwarding API requests to the NRGKick device. **This is the recommended way to run the interface.**
+
+**Requirements:** Node.js 14.0.0 or higher
+
+**Quick Start:**
+
+```bash
+# Clone or download this repository
+cd nrgkick-web-interface
+
+# Start the proxy server
+node server.js
+
+# Or with a custom port
+node server.js 8080
+```
+
+Then open `http://localhost:3000` in your browser.
+
+The proxy server:
+- Serves the web interface files
+- Forwards API requests to the NRGKick device
+- Handles CORS automatically
+- Works with both HTTP and HTTPS clients
+
+**Example with URL parameters:**
+```
+http://localhost:3000/?ip=192.168.1.100&user=admin&pass=mypassword
+```
+
+### Self-Hosted Web Server (Advanced)
+
+For production use without the proxy, host the files on a web server (e.g., nginx, Apache) and serve over HTTP (not HTTPS):
 
 ```bash
 # Using Python 3
@@ -123,15 +155,50 @@ npx http-server -p 8080
 
 Then access the interface at `http://localhost:8080`
 
-## CORS Considerations
+**Note:** Direct connections only work when:
+- The web server and browser are on the same network as the NRGKick device
+- The page is served over HTTP (not HTTPS)
+- The NRGKick device's CORS headers allow the request
 
-When accessing the NRGKick charger from a web browser, CORS (Cross-Origin Resource Sharing) policies may apply. If you encounter connection issues:
+## CORS and Mixed Content Considerations
 
-1. **Host the web interface on the same network** as the charger
-2. **Use a browser extension** that disables CORS for development
-3. **Use a local proxy** to forward requests to the charger
+When accessing the NRGKick charger from a web browser, you may encounter issues due to:
 
-**Note:** The NRGKick Gen2 firmware should include CORS headers for local API access. If you still experience issues, check your firmware version is up to date.
+1. **CORS (Cross-Origin Resource Sharing)** - Browser security that blocks requests to different origins
+2. **Mixed Content** - HTTPS pages cannot make HTTP requests (NRGKick uses HTTP)
+
+### Solution: Use the Proxy Server
+
+The included `server.js` proxy server is the recommended solution:
+
+```bash
+node server.js
+```
+
+This:
+- Serves the web interface on `http://localhost:3000`
+- Proxies API requests to the NRGKick device
+- Eliminates CORS and mixed content issues
+
+### URL Parameter: proxy
+
+You can control proxy behavior with the `proxy` URL parameter:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` | (Default) Use proxy when page is served over HTTPS |
+| `on` | Always use proxy mode |
+| `off` | Direct connection mode |
+
+Example: `?ip=192.168.1.100&proxy=on`
+
+### Alternative Solutions
+
+If you cannot use the proxy server:
+
+1. **Open `index.html` directly** - File URLs (`file://`) may work for direct connections
+2. **Use an HTTP server** - Serve the files over HTTP (not HTTPS) on the same network
+3. **Update NRGKick firmware** - Ensure your device has the latest firmware with CORS support
 
 ## Browser Support
 
