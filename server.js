@@ -1,28 +1,34 @@
 /**
- * NRGKick Web Interface Proxy Server
+ * NRGKick Web Interface Server
  * 
- * This server acts as a CORS proxy between the web interface and the NRGKick charger.
- * It solves the CORS issue by:
- * 1. Serving the static web files
- * 2. Proxying API requests to the NRGKick device
- * 
- * Usage:
- *   node server.js [port]
+ * This server provides a complete web interface for NRGKick EV chargers:
+ * 1. Serves the static web files (UI)
+ * 2. Proxies API requests to the configured NRGKick device
+ * 3. Provides configuration via /api/config endpoint
  * 
  * Environment variables:
- *   PORT - Server port (default: 3000)
+ *   PORT          - Server port (default: 3000)
+ *   NRGKICK_IP    - IP address of the NRGKick charger (required)
+ *   NRGKICK_USER  - Username for authentication (optional)
+ *   NRGKICK_PASS  - Password for authentication (optional)
  * 
  * Example:
- *   node server.js
- *   node server.js 8080
- *   PORT=8080 node server.js
+ *   NRGKICK_IP=192.168.1.100 node server.js
+ *   NRGKICK_IP=192.168.1.100 NRGKICK_USER=admin NRGKICK_PASS=secret PORT=8080 node server.js
+ * 
+ * Docker:
+ *   docker build -t nrgkick-web .
+ *   docker run -p 3000:3000 -e NRGKICK_IP=192.168.1.100 nrgkick-web
  */
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = process.argv[2] || process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
+const NRGKICK_IP = process.env.NRGKICK_IP || '';
+const NRGKICK_USER = process.env.NRGKICK_USER || '';
+const NRGKICK_PASS = process.env.NRGKICK_PASS || '';
 const PROXY_TIMEOUT_MS = 10000; // Timeout for proxy requests to NRGKick device
 
 // MIME types for static files
@@ -137,37 +143,52 @@ function handleRequest(req, res) {
         res.writeHead(204, {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-NRGKick-IP',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
             'Access-Control-Max-Age': '86400'
         });
         res.end();
         return;
     }
 
-    // Proxy API requests
-    // Format: /api/<charger-ip>/<endpoint>
-    // Example: /api/192.168.1.100/info?general=1
-    if (pathname.startsWith('/api/')) {
-        const pathParts = pathname.substring(5).split('/');
-        const targetIP = pathParts[0];
-        const targetPath = '/' + pathParts.slice(1).join('/') + url.search;
+    // Serve configuration endpoint
+    // Returns the configured NRGKick IP and whether auth is configured
+    if (pathname === '/api/config') {
+        res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify({
+            configured: !!NRGKICK_IP,
+            ip: NRGKICK_IP,
+            hasAuth: !!(NRGKICK_USER && NRGKICK_PASS)
+        }));
+        return;
+    }
 
-        // Validate IP address format (IPv4 with octets 0-255)
-        const ipRegex = /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/;
-        if (!targetIP || !ipRegex.test(targetIP)) {
-            res.writeHead(400, {
+    // Proxy API requests to the configured NRGKick device
+    // Format: /api/<endpoint>
+    // Example: /api/info?general=1
+    if (pathname.startsWith('/api/')) {
+        if (!NRGKICK_IP) {
+            res.writeHead(503, {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*'
             });
-            res.end(JSON.stringify({ error: 'Invalid IP address format' }));
+            res.end(JSON.stringify({ error: 'NRGKick IP not configured. Set NRGKICK_IP environment variable.' }));
             return;
         }
 
-        // Get authorization header if present
-        const authHeader = req.headers['authorization'];
+        const targetPath = pathname.substring(4) + url.search; // Remove '/api' prefix, keep the rest
+        
+        // Build auth header from environment variables if configured
+        let authHeader = null;
+        if (NRGKICK_USER && NRGKICK_PASS) {
+            const credentials = Buffer.from(`${NRGKICK_USER}:${NRGKICK_PASS}`).toString('base64');
+            authHeader = `Basic ${credentials}`;
+        }
 
-        console.log(`Proxying request to http://${targetIP}${targetPath}`);
-        proxyRequest(targetIP, targetPath, authHeader, res);
+        console.log(`Proxying request to http://${NRGKICK_IP}${targetPath}`);
+        proxyRequest(NRGKICK_IP, targetPath, authHeader, res);
         return;
     }
 
@@ -187,24 +208,50 @@ function handleRequest(req, res) {
     serveStaticFile(resolvedPath, res);
 }
 
+// Validate configuration
+if (!NRGKICK_IP) {
+    console.error(`
+╔════════════════════════════════════════════════════════════╗
+║                    CONFIGURATION ERROR                     ║
+╠════════════════════════════════════════════════════════════╣
+║                                                            ║
+║  NRGKICK_IP environment variable is not set!               ║
+║                                                            ║
+║  Please provide the IP address of your NRGKick charger:    ║
+║                                                            ║
+║  Example:                                                  ║
+║    NRGKICK_IP=192.168.1.100 node server.js                 ║
+║                                                            ║
+║  With authentication:                                      ║
+║    NRGKICK_IP=192.168.1.100 \\                              ║
+║    NRGKICK_USER=admin \\                                    ║
+║    NRGKICK_PASS=secret node server.js                      ║
+║                                                            ║
+║  Docker:                                                   ║
+║    docker run -p 3000:3000 \\                               ║
+║      -e NRGKICK_IP=192.168.1.100 nrgkick-web               ║
+║                                                            ║
+╚════════════════════════════════════════════════════════════╝
+`);
+    process.exit(1);
+}
+
 // Create and start the server
 const server = http.createServer(handleRequest);
 
 server.listen(PORT, () => {
+    const authStatus = (NRGKICK_USER && NRGKICK_PASS) ? 'Yes' : 'No';
     console.log(`
 ╔════════════════════════════════════════════════════════════╗
-║           NRGKick Web Interface Proxy Server               ║
+║              NRGKick Web Interface Server                  ║
 ╠════════════════════════════════════════════════════════════╣
 ║                                                            ║
 ║  Server running at: http://localhost:${String(PORT).padEnd(5)}                ║
 ║                                                            ║
+║  NRGKick IP: ${NRGKICK_IP.padEnd(44)}║
+║  Authentication: ${authStatus.padEnd(40)}║
+║                                                            ║
 ║  Open in your browser to access the NRGKick interface.     ║
-║                                                            ║
-║  API proxy endpoint:                                       ║
-║    /api/<charger-ip>/<endpoint>                            ║
-║                                                            ║
-║  Example:                                                  ║
-║    /api/192.168.1.100/info?general=1                       ║
 ║                                                            ║
 ║  Press Ctrl+C to stop the server.                          ║
 ║                                                            ║

@@ -1,6 +1,6 @@
 # NRGKick Web Interface
 
-A responsive web interface for NRGKick Gen2 EV chargers that works on both mobile devices and desktop computers.
+A responsive web interface for NRGKick Gen2 EV chargers that runs in a Docker container.
 
 ## Features
 
@@ -8,58 +8,94 @@ A responsive web interface for NRGKick Gen2 EV chargers that works on both mobil
 - **Real-time Status**: View charging state, power, energy, current, voltage, and temperature
 - **Charger Control**: Start/stop charging, set current limit, and switch between 1 and 3 phases
 - **Device Information**: View serial number, firmware version, and total energy
-- **URL Parameters**: Configure connection via URL parameters for easy bookmarking
-- **Authentication Support**: Basic authentication with username and password
+- **Docker Ready**: Easy deployment with Docker and Docker Compose
+- **Secure Configuration**: Credentials stored in environment variables, not in the UI
 - **Dark Mode**: Automatic dark mode support based on system preferences
 - **Auto-refresh**: Status updates every 2 seconds when connected
 
-## NRGKick API
+## Quick Start with Docker
 
-This interface uses the NRGKick Gen2 local JSON API (HTTP REST). The API endpoints are:
+### Using Docker Run
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/info` | GET | Device information (serial, model, versions, network) |
-| `/control` | GET | Read/write control settings (current, pause, phases) |
-| `/values` | GET | Real-time measurements (power, energy, temperatures) |
+```bash
+# Basic usage
+docker run -p 3000:3000 -e NRGKICK_IP=192.168.1.100 ghcr.io/remiserriere/nrgkick-web-interface
 
-### Control Parameters
-
-Control commands are sent as query parameters to `/control`:
-
-- `current_set=<6-32>` - Set charging current in Amps
-- `charge_pause=<0|1>` - 0 = charging enabled, 1 = charging paused
-- `phase_count=<1|2|3>` - Set number of phases (requires phase switching enabled in app)
-- `energy_limit=<Wh>` - Set energy limit in Watt-hours (0 = no limit)
-
-**Note:** The NRGKick device uses HTTP (not HTTPS) for local API access.
-
-## Usage
-
-### Basic Usage
-
-1. Open `index.html` in your web browser
-2. Enter the IP address of your NRGKick charger
-3. Optionally enter username and password if authentication is required
-4. Click "Connect"
-
-### URL Parameters
-
-You can configure the connection via URL parameters:
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `ip` | Charger IP address | `192.168.1.100` |
-| `user` | Username for authentication | `admin` |
-| `pass` | Password for authentication | `mypassword` |
-| `proxy` | Proxy mode: `on` or `off` (default: `off`) | `on` |
-
-**Example URL:**
-```
-index.html?ip=192.168.1.100&user=admin&pass=mypassword
+# With authentication
+docker run -p 3000:3000 \
+  -e NRGKICK_IP=192.168.1.100 \
+  -e NRGKICK_USER=admin \
+  -e NRGKICK_PASS=secret \
+  ghcr.io/remiserriere/nrgkick-web-interface
 ```
 
-When the `ip` parameter is provided, the interface will automatically attempt to connect.
+### Using Docker Compose
+
+1. Create a `docker-compose.yml` file:
+
+```yaml
+services:
+  nrgkick-web:
+    image: ghcr.io/remiserriere/nrgkick-web-interface
+    ports:
+      - "3000:3000"
+    environment:
+      - NRGKICK_IP=192.168.1.100
+      # - NRGKICK_USER=admin
+      # - NRGKICK_PASS=secret
+    restart: unless-stopped
+```
+
+2. Run:
+
+```bash
+docker-compose up -d
+```
+
+3. Open http://localhost:3000 in your browser
+
+### Building Locally
+
+```bash
+# Clone the repository
+git clone https://github.com/remiserriere/nrgkick-web-interface.git
+cd nrgkick-web-interface
+
+# Build the Docker image
+docker build -t nrgkick-web .
+
+# Run the container
+docker run -p 3000:3000 -e NRGKICK_IP=192.168.1.100 nrgkick-web
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `NRGKICK_IP` | Yes | IP address of your NRGKick charger | `192.168.1.100` |
+| `NRGKICK_USER` | No | Username for API authentication | `admin` |
+| `NRGKICK_PASS` | No | Password for API authentication | `secret` |
+| `PORT` | No | Server port (default: 3000) | `8080` |
+
+## Running Without Docker
+
+If you prefer to run without Docker:
+
+```bash
+# Clone the repository
+git clone https://github.com/remiserriere/nrgkick-web-interface.git
+cd nrgkick-web-interface
+
+# Run with Node.js (requires Node.js 14+)
+NRGKICK_IP=192.168.1.100 node server.js
+
+# With authentication
+NRGKICK_IP=192.168.1.100 NRGKICK_USER=admin NRGKICK_PASS=secret node server.js
+```
+
+Then open http://localhost:3000 in your browser.
 
 ## Prerequisites
 
@@ -81,123 +117,24 @@ To use the phase switching feature (1 phase / 3 phases):
 2. Go to **Extended** → **Phase Switching**
 3. Enable the feature
 
-## Installation
+## NRGKick API
 
-### GitHub Pages (Recommended)
+This interface uses the NRGKick Gen2 local JSON API (HTTP REST). The API endpoints are:
 
-This web interface can be hosted for free on GitHub Pages:
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/info` | GET | Device information (serial, model, versions, network) |
+| `/control` | GET | Read/write control settings (current, pause, phases) |
+| `/values` | GET | Real-time measurements (power, energy, temperatures) |
 
-1. Fork this repository to your GitHub account
-2. Go to **Settings** → **Pages**
-3. Under "Build and deployment", select **GitHub Actions** as the source
-4. The workflow will automatically deploy on push to the `main` branch
-5. Access your interface at `https://YOUR-USERNAME.github.io/nrgkick-web-interface/`
+### Control Parameters
 
-**⚠️ Important:** When hosted on GitHub Pages, you must run the **proxy server** on your local network to connect to your NRGKick device (see [Using the Proxy Server](#using-the-proxy-server-recommended) below).
+Control commands are sent as query parameters to `/control`:
 
-### Local Files
-
-Simply download the files and open `index.html` in a web browser:
-
-```
-nrgkick-web-interface/
-├── index.html   # Main HTML file
-├── styles.css   # Stylesheet
-├── app.js       # Application logic
-├── server.js    # Proxy server (Node.js)
-├── package.json # Node.js configuration
-└── README.md    # Documentation
-```
-
-### Using the Proxy Server (Recommended)
-
-The proxy server solves CORS issues by forwarding API requests to the NRGKick device. **This is the recommended way to run the interface.**
-
-**Requirements:** Node.js 14.0.0 or higher
-
-**Quick Start:**
-
-```bash
-# Clone or download this repository
-cd nrgkick-web-interface
-
-# Start the proxy server
-node server.js
-
-# Or with a custom port
-node server.js 8080
-```
-
-Then open `http://localhost:3000` in your browser.
-
-The proxy server:
-- Serves the web interface files
-- Forwards API requests to the NRGKick device
-- Handles CORS automatically
-- Works with both HTTP and HTTPS clients
-
-**Example with URL parameters:**
-```
-http://localhost:3000/?ip=192.168.1.100&user=admin&pass=mypassword
-```
-
-### Self-Hosted Web Server (Advanced)
-
-For production use without the proxy, host the files on a web server (e.g., nginx, Apache) and serve over HTTP (not HTTPS):
-
-```bash
-# Using Python 3
-python -m http.server 8080
-
-# Using Node.js with http-server
-npx http-server -p 8080
-```
-
-Then access the interface at `http://localhost:8080`
-
-**Note:** Direct connections only work when:
-- The web server and browser are on the same network as the NRGKick device
-- The page is served over HTTP (not HTTPS)
-- The NRGKick device's CORS headers allow the request
-
-## CORS and Mixed Content Considerations
-
-When accessing the NRGKick charger from a web browser, you may encounter issues due to:
-
-1. **CORS (Cross-Origin Resource Sharing)** - Browser security that blocks requests to different origins
-2. **Mixed Content** - HTTPS pages cannot make HTTP requests (NRGKick uses HTTP)
-
-### Solution: Use the Proxy Server
-
-The included `server.js` proxy server is the recommended solution:
-
-```bash
-node server.js
-```
-
-This:
-- Serves the web interface on `http://localhost:3000`
-- Proxies API requests to the NRGKick device
-- Eliminates CORS and mixed content issues
-
-### URL Parameter: proxy
-
-You can control proxy behavior with the `proxy` URL parameter:
-
-| Value | Behavior |
-|-------|----------|
-| `on` | Use proxy mode (requests go to `/api/<ip>/<endpoint>`) |
-| `off` | (Default) Direct connection mode (requests go to `http://<ip>/<endpoint>`) |
-
-Example: `?ip=192.168.1.100&proxy=on`
-
-### Alternative Solutions
-
-If you cannot use the proxy server:
-
-1. **Open `index.html` directly** - File URLs (`file://`) may work for direct connections
-2. **Use an HTTP server** - Serve the files over HTTP (not HTTPS) on the same network
-3. **Update NRGKick firmware** - Ensure your device has the latest firmware with CORS support
+- `current_set=<6-32>` - Set charging current in Amps
+- `charge_pause=<0|1>` - 0 = charging enabled, 1 = charging paused
+- `phase_count=<1|2|3>` - Set number of phases (requires phase switching enabled in app)
+- `energy_limit=<Wh>` - Set energy limit in Watt-hours (0 = no limit)
 
 ## Browser Support
 
@@ -209,18 +146,18 @@ If you cannot use the proxy server:
 
 ## Troubleshooting
 
+### Container Won't Start
+
+1. Check that `NRGKICK_IP` environment variable is set
+2. Verify the IP address is correct
+3. Check container logs: `docker logs <container-id>`
+
 ### Connection Failed
 
-1. Verify the IP address is correct
-2. Ensure the NRGKick is powered on and connected to WiFi
+1. Verify the NRGKick charger is powered on and connected to WiFi
+2. Ensure you can ping the charger from the Docker host
 3. Check that the JSON API is enabled in the NRGKick app
-4. If using authentication, verify username and password
-
-### Authentication Failed
-
-1. Ensure "Authentication (JSON)" is enabled in the NRGKick app
-2. Verify username and password are correct (case-sensitive)
-3. Try disabling and re-enabling authentication in the app
+4. If using authentication, verify credentials are correct
 
 ### Phase Switching Not Working
 
