@@ -1,0 +1,19 @@
+{
+  "name": "nrgkick-web-interface",
+  "version": "1.0.0",
+  "description": "Web interface for NRGKick Gen2 EV chargers with CORS proxy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "nrgkick",
+    "ev",
+    "charger",
+    "web-interface"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
