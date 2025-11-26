@@ -194,7 +194,6 @@ class NRGKickController {
             return this.useProxy;
         }
         // Auto-detect: use proxy if served over HTTPS (can't make HTTP requests from HTTPS page)
-        // or if explicitly requested
         return window.location.protocol === 'https:';
     }
 

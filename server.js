@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 
 const PORT = process.argv[2] || process.env.PORT || 3000;
+const PROXY_TIMEOUT_MS = 10000; // Timeout for proxy requests to NRGKick device
 
 // MIME types for static files
 const MIME_TYPES = {
@@ -56,7 +57,10 @@ function serveStaticFile(filePath, res) {
             return;
         }
 
-        res.writeHead(200, { 'Content-Type': contentType });
+        res.writeHead(200, { 
+            'Content-Type': contentType,
+            'X-Content-Type-Options': 'nosniff'
+        });
         res.end(content);
     });
 }
@@ -73,7 +77,7 @@ function proxyRequest(targetIP, targetPath, authHeader, res) {
         headers: {
             'Accept': 'application/json'
         },
-        timeout: 10000
+        timeout: PROXY_TIMEOUT_MS
     };
 
     // Add authorization header if provided
@@ -148,7 +152,9 @@ function handleRequest(req, res) {
         const targetIP = pathParts[0];
         const targetPath = '/' + pathParts.slice(1).join('/') + url.search;
 
-        if (!targetIP || !targetIP.match(/^[\d.]+$/)) {
+        // Validate IP address format (IPv4 with octets 0-255)
+        const ipRegex = /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/;
+        if (!targetIP || !ipRegex.test(targetIP)) {
             res.writeHead(400, {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*'
@@ -170,8 +176,9 @@ function handleRequest(req, res) {
     filePath = path.join(__dirname, filePath);
 
     // Security: prevent directory traversal
+    const baseDir = path.resolve(__dirname);
     const resolvedPath = path.resolve(filePath);
-    if (!resolvedPath.startsWith(__dirname)) {
+    if (!resolvedPath.startsWith(baseDir)) {
         res.writeHead(403, { 'Content-Type': 'text/plain' });
         res.end('Forbidden');
         return;
