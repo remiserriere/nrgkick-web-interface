@@ -4,27 +4,16 @@
  * This application provides a web interface for NRGKick Gen2 EV chargers
  * using the local JSON API (HTTP REST).
  * 
- * API Endpoints (based on NRGKick Gen2 local API):
- * - GET /info - Device information (serial, model, versions, network)
- * - GET /control - Control settings (current_set, charge_pause, phases)
- * - GET /values - Real-time measurements (power, energy, temperatures)
+ * The server handles:
+ * - Serving this web interface
+ * - Proxying API requests to the NRGKick device
+ * - Authentication (configured via environment variables)
  * 
- * URL Parameters:
- * - ip: Charger IP address (e.g., ?ip=192.168.1.100)
- * - user: Username for authentication (e.g., ?user=admin)
- * - pass: Password for authentication (e.g., ?pass=secret)
- * - proxy: Use proxy mode ('auto', 'on', 'off') - defaults to 'auto'
- * 
- * Example: index.html?ip=192.168.1.100&user=admin&pass=mypassword
- * 
- * Proxy Mode:
- * When the web interface is hosted on a different origin (like GitHub Pages),
- * CORS restrictions prevent direct API calls to the NRGKick device.
- * The proxy server (server.js) solves this by:
- * 1. Serving the web interface
- * 2. Forwarding API requests to the NRGKick device
- * 
- * Note: The NRGKick device uses HTTP (not HTTPS) for local API access.
+ * API Endpoints (proxied through server):
+ * - GET /api/info - Device information (serial, model, versions, network)
+ * - GET /api/control - Control settings (current_set, charge_pause, phases)
+ * - GET /api/values - Real-time measurements (power, energy, temperatures)
+ * - GET /api/config - Server configuration (IP, auth status)
  */
 
 // Status codes from NRGKick API
@@ -40,18 +29,16 @@ const STATUS_MAP = {
 class NRGKickController {
     constructor() {
         this.chargerIP = '';
-        this.username = '';
-        this.password = '';
         this.isConnected = false;
+        this.isConfigured = false;
         this.updateInterval = null;
         this.updateIntervalMs = 2000; // Update every 2 seconds
         this.commandDelayMs = 500; // Delay before refreshing status after a command
         this.cachedDeviceInfo = null;
-        this.useProxy = null; // null = auto-detect, true = use proxy, false = direct
 
         this.initElements();
         this.initEventListeners();
-        this.loadURLParameters();
+        this.loadServerConfig();
     }
 
     /**
@@ -59,12 +46,10 @@ class NRGKickController {
      */
     initElements() {
         // Connection elements
-        this.connectionForm = document.getElementById('connection-form');
-        this.chargerIPInput = document.getElementById('charger-ip');
-        this.usernameInput = document.getElementById('username');
-        this.passwordInput = document.getElementById('password');
+        this.connectBtn = document.getElementById('connect-btn');
         this.disconnectBtn = document.getElementById('disconnect-btn');
         this.connectionStatus = document.getElementById('connection-status');
+        this.chargerIPDisplay = document.getElementById('charger-ip-display');
 
         // Panels
         this.connectionPanel = document.getElementById('connection-panel');
@@ -108,12 +93,8 @@ class NRGKickController {
      * Initialize event listeners
      */
     initEventListeners() {
-        // Connection form
-        this.connectionForm.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.connect();
-        });
-
+        // Connection buttons
+        this.connectBtn.addEventListener('click', () => this.connect());
         this.disconnectBtn.addEventListener('click', () => this.disconnect());
 
         // Control buttons
@@ -134,107 +115,38 @@ class NRGKickController {
     }
 
     /**
-     * Load configuration from URL parameters
+     * Load configuration from server
      */
-    loadURLParameters() {
-        const urlParams = new URLSearchParams(window.location.search);
-        
-        const ip = urlParams.get('ip');
-        const user = urlParams.get('user');
-        const pass = urlParams.get('pass');
-        const proxy = urlParams.get('proxy');
-
-        if (ip) {
-            this.chargerIPInput.value = ip;
-        }
-        if (user) {
-            this.usernameInput.value = user;
-        }
-        if (pass) {
-            this.passwordInput.value = pass;
-        }
-        
-        // Handle proxy mode setting
-        if (proxy === 'on') {
-            this.useProxy = true;
-        } else if (proxy === 'off') {
-            this.useProxy = false;
-        }
-        // Default (null or 'auto') = auto-detect
-
-        // Auto-connect if IP is provided
-        if (ip) {
-            this.connect();
+    async loadServerConfig() {
+        try {
+            const response = await fetch('/api/config');
+            const config = await response.json();
+            
+            this.isConfigured = config.configured;
+            this.chargerIP = config.ip || '';
+            
+            if (this.chargerIPDisplay) {
+                this.chargerIPDisplay.textContent = this.chargerIP || 'Not configured';
+            }
+            
+            if (this.isConfigured) {
+                // Auto-connect if server is configured
+                this.connect();
+            } else {
+                this.showError('Server not configured. Set NRGKICK_IP environment variable.');
+            }
+        } catch (error) {
+            console.error('Failed to load server config:', error);
+            this.showError('Failed to connect to server. Make sure the server is running.');
         }
     }
 
     /**
-     * Update URL with current parameters
-     */
-    updateURL() {
-        const params = new URLSearchParams();
-        if (this.chargerIP) {
-            params.set('ip', this.chargerIP);
-        }
-        if (this.username) {
-            params.set('user', this.username);
-        }
-        // Note: We don't store password in URL for security, but we read it
-        
-        const newURL = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
-        window.history.replaceState({}, '', newURL);
-    }
-
-    /**
-     * Check if proxy mode should be used
-     * Auto-detects based on protocol (HTTPS requires proxy for HTTP API)
-     */
-    shouldUseProxy() {
-        if (this.useProxy !== null) {
-            return this.useProxy;
-        }
-        // Auto-detect: use proxy if served over HTTPS (can't make HTTP requests from HTTPS page)
-        return window.location.protocol === 'https:';
-    }
-
-    /**
-     * Build the API URL for a given endpoint
-     * When using proxy: /api/<charger-ip>/<endpoint>
-     * Direct mode: http://<charger-ip>/<endpoint>
-     */
-    buildAPIUrl(endpoint) {
-        if (this.shouldUseProxy()) {
-            // Use proxy endpoint
-            return `/api/${this.chargerIP}${endpoint}`;
-        }
-        // Direct mode - always use HTTP for NRGKick local API
-        return `http://${this.chargerIP}${endpoint}`;
-    }
-
-    /**
-     * Build authentication headers
-     */
-    getAuthHeaders() {
-        const headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-        };
-
-        if (this.username && this.password) {
-            const credentials = btoa(`${this.username}:${this.password}`);
-            headers['Authorization'] = `Basic ${credentials}`;
-        }
-
-        return headers;
-    }
-
-    /**
-     * Make an API request to the charger
-     * Handles both GET requests with query parameters and response parsing
-     * When using proxy, requests go to /api/<ip>/<endpoint> on the same origin
+     * Make an API request to the charger (via server proxy)
+     * All requests go through the server which handles authentication
      */
     async apiRequest(endpoint, params = null) {
-        let url = this.buildAPIUrl(endpoint);
+        let url = `/api${endpoint}`;
         
         // Add query parameters if provided
         if (params) {
@@ -244,27 +156,22 @@ class NRGKickController {
 
         const options = {
             method: 'GET',
-            headers: this.getAuthHeaders()
+            headers: {
+                'Accept': 'application/json'
+            }
         };
-        
-        // Only set mode to 'cors' for direct requests (non-proxy mode)
-        // Proxy requests are same-origin so no CORS needed
-        if (!this.shouldUseProxy()) {
-            options.mode = 'cors';
-        }
 
         const response = await fetch(url, options);
         
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText} (${url})`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         const data = await response.json();
         
         // Check for API error response
         // NRGKick returns {"Response": "error message"} for errors
-        // (e.g., "Charging pause is blocked by solar-charging")
-        // Proxy server returns {"error": "message"} for proxy errors
+        // Server returns {"error": "message"} for proxy errors
         if (data.Response) {
             throw new Error(data.Response);
         }
@@ -279,12 +186,8 @@ class NRGKickController {
      * Connect to the charger
      */
     async connect() {
-        this.chargerIP = this.chargerIPInput.value.trim();
-        this.username = this.usernameInput.value.trim();
-        this.password = this.passwordInput.value;
-
-        if (!this.chargerIP) {
-            this.showError('Please enter the charger IP address');
+        if (!this.isConfigured) {
+            this.showError('Server not configured. Set NRGKICK_IP environment variable.');
             return;
         }
 
@@ -298,13 +201,13 @@ class NRGKickController {
             
             this.isConnected = true;
             this.setConnectionStatus('connected');
-            this.updateURL();
             this.showPanels(true);
             
             // Start periodic updates
             this.startPeriodicUpdates();
             
-            // Update disconnect button
+            // Update buttons
+            this.connectBtn.disabled = true;
             this.disconnectBtn.disabled = false;
             
         } catch (error) {
@@ -325,6 +228,7 @@ class NRGKickController {
         this.isConnected = false;
         this.setConnectionStatus('disconnected');
         this.showPanels(false);
+        this.connectBtn.disabled = false;
         this.disconnectBtn.disabled = true;
         this.resetStatusValues();
     }
