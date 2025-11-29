@@ -79,6 +79,16 @@ docker run -p 3000:3000 -e NRGKICK_IP=192.168.1.100 nrgkick-web
 | `NRGKICK_PASS` | No | Password for API authentication | `secret` |
 | `PORT` | No | Server port (default: 3000) | `8080` |
 
+### URL Parameters
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `showConnection` | Show the connection panel (hidden by default when IP is configured) | `?showConnection=true` |
+
+When `NRGKICK_IP` is configured via environment variable, the connection panel is hidden by default and the interface auto-connects. You can show the connection panel by adding `?showConnection=true` to the URL, which allows you to:
+- View the configured IP address
+- Enter username/password for authentication (overrides environment variables)
+
 ## Running Without Docker
 
 If you prefer to run without Docker:
