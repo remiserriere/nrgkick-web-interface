@@ -31,14 +31,33 @@ class NRGKickController {
         this.chargerIP = '';
         this.isConnected = false;
         this.isConfigured = false;
+        this.hasEnvAuth = false; // Whether auth is configured via environment variables
+        this.authHeader = null; // Authorization header for API requests
+        this.showConnectionPanel = false; // Default to hidden when configured
         this.updateInterval = null;
         this.updateIntervalMs = 2000; // Update every 2 seconds
         this.commandDelayMs = 500; // Delay before refreshing status after a command
         this.cachedDeviceInfo = null;
 
+        // Check URL parameter for showing connection panel
+        this.parseUrlParameters();
+        
         this.initElements();
         this.initEventListeners();
         this.loadServerConfig();
+    }
+
+    /**
+     * Parse URL parameters to check for showConnection option
+     */
+    parseUrlParameters() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const showConnectionParam = urlParams.get('showConnection');
+        
+        // Show connection panel if explicitly set to 'true' or '1'
+        if (showConnectionParam === 'true' || showConnectionParam === '1') {
+            this.showConnectionPanel = true;
+        }
     }
 
     /**
@@ -50,6 +69,8 @@ class NRGKickController {
         this.disconnectBtn = document.getElementById('disconnect-btn');
         this.connectionStatus = document.getElementById('connection-status');
         this.chargerIPDisplay = document.getElementById('charger-ip-display');
+        this.authUsernameInput = document.getElementById('auth-username');
+        this.authPasswordInput = document.getElementById('auth-password');
 
         // Panels
         this.connectionPanel = document.getElementById('connection-panel');
@@ -124,19 +145,30 @@ class NRGKickController {
             
             this.isConfigured = config.configured;
             this.chargerIP = config.ip || '';
+            this.hasEnvAuth = config.hasAuth || false;
             
             if (this.chargerIPDisplay) {
                 this.chargerIPDisplay.textContent = this.chargerIP || 'Not configured';
             }
             
+            // Show/hide connection panel based on configuration and URL parameter
             if (this.isConfigured) {
+                // Only show connection panel if explicitly requested via URL parameter
+                if (this.showConnectionPanel) {
+                    this.connectionPanel.classList.remove('hidden');
+                } else {
+                    this.connectionPanel.classList.add('hidden');
+                }
                 // Auto-connect if server is configured
                 this.connect();
             } else {
+                // Always show connection panel if not configured (to show error)
+                this.connectionPanel.classList.remove('hidden');
                 this.showError('Server not configured. Set NRGKICK_IP environment variable.');
             }
         } catch (error) {
             console.error('Failed to load server config:', error);
+            this.connectionPanel.classList.remove('hidden');
             this.showError('Failed to connect to server. Make sure the server is running.');
         }
     }
@@ -154,11 +186,18 @@ class NRGKickController {
             url = `${url}?${queryString}`;
         }
 
+        const headers = {
+            'Accept': 'application/json'
+        };
+        
+        // Add Authorization header if credentials are set
+        if (this.authHeader) {
+            headers['Authorization'] = this.authHeader;
+        }
+
         const options = {
             method: 'GET',
-            headers: {
-                'Accept': 'application/json'
-            }
+            headers
         };
 
         const response = await fetch(url, options);
@@ -194,6 +233,20 @@ class NRGKickController {
         this.showLoading(true);
         this.setConnectionStatus('connecting');
 
+        // Build auth header from input fields if provided
+        const username = this.authUsernameInput ? this.authUsernameInput.value.trim() : '';
+        const password = this.authPasswordInput ? this.authPasswordInput.value : '';
+        
+        if (username && password) {
+            // Use credentials from input fields
+            const credentials = btoa(`${username}:${password}`);
+            this.authHeader = `Basic ${credentials}`;
+        } else if (!this.hasEnvAuth) {
+            // No auth configured
+            this.authHeader = null;
+        }
+        // If hasEnvAuth is true and no input credentials, server will use env vars
+
         try {
             // Try to fetch charger info to verify connection
             await this.fetchChargerInfo();
@@ -226,6 +279,7 @@ class NRGKickController {
     disconnect() {
         this.stopPeriodicUpdates();
         this.isConnected = false;
+        this.authHeader = null; // Clear auth header on disconnect
         this.setConnectionStatus('disconnected');
         this.showPanels(false);
         this.connectBtn.disabled = false;
@@ -259,18 +313,12 @@ class NRGKickController {
 
     /**
      * Fetch charger device information from /info endpoint
-     * Sections: general, connector, grid, network, versions
+     * Returns all sections: general, connector, grid, network, versions
      */
     async fetchChargerInfo() {
         try {
-            // Request all info sections
-            const info = await this.apiRequest('/info', {
-                general: 1,
-                connector: 1,
-                grid: 1,
-                network: 1,
-                versions: 1
-            });
+            // Request info without parameters - returns all sections
+            const info = await this.apiRequest('/info');
 
             this.cachedDeviceInfo = info;
             this.updateDeviceInfo(info);
@@ -287,14 +335,10 @@ class NRGKickController {
     async fetchChargerStatus() {
         try {
             // Fetch control settings and real-time values in parallel
+            // No query parameters needed - returns all data
             const [control, values] = await Promise.all([
                 this.apiRequest('/control'),
-                this.apiRequest('/values', {
-                    general: 1,
-                    energy: 1,
-                    powerflow: 1,
-                    temperatures: 1
-                })
+                this.apiRequest('/values')
             ]);
 
             // Merge the data for display
@@ -333,12 +377,16 @@ class NRGKickController {
 
     /**
      * Update the status display with current values
-     * Data structure:
+     * Data structure (based on NRGKick Home Assistant integration):
      * - control: { current_set, charge_pause, energy_limit, phase_count }
-     * - values.general: { status, charging_rate, vehicle_connect_time }
+     * - values.general: { status, charging_rate, vehicle_connect_time, vehicle_charging_time, 
+     *                     charge_permitted, relay_state, charge_count, rcd_trigger, warning_code, error_code }
      * - values.energy: { total_charged_energy, charged_energy }
-     * - values.powerflow: { total_active_power, l1: {...}, l2: {...}, l3: {...} }
-     * - values.temperatures: { housing, connector_l1, connector_l2, connector_l3 }
+     * - values.powerflow: { charging_voltage, charging_current, grid_frequency, peak_power,
+     *                       total_active_power, total_reactive_power, total_apparent_power, total_power_factor,
+     *                       l1: {voltage, current, active_power, reactive_power, apparent_power, power_factor},
+     *                       l2: {...}, l3: {...}, n: {current} }
+     * - values.temperatures: { housing, connector_l1, connector_l2, connector_l3, domestic_plug_1, domestic_plug_2 }
      */
     updateStatusDisplay(data) {
         const control = data.control || {};
@@ -370,29 +418,39 @@ class NRGKickController {
             this.totalEnergyEl.textContent = `${(totalEnergy / 1000).toFixed(2)} kWh`;
         }
 
-        // Calculate total current from all phases
-        // For 3-phase charging, currents flow on all phases simultaneously
-        // For 1-phase charging, only L1 has current
-        const l1 = powerflow.l1 || {};
-        const l2 = powerflow.l2 || {};
-        const l3 = powerflow.l3 || {};
-        const l1Current = l1.current || 0;
-        const l2Current = l2.current || 0;
-        const l3Current = l3.current || 0;
-        
-        // Display total current (sum of all phases for 3-phase, L1 only for 1-phase)
-        const totalCurrent = l1Current + l2Current + l3Current;
-        if (totalCurrent > 0) {
-            this.currentValueEl.textContent = `${totalCurrent.toFixed(1)} A`;
-        } else if (statusCode === 3) {
-            // Charging but no current yet
-            this.currentValueEl.textContent = '0.0 A';
+        // Use charging_current from powerflow (max current signaled to EV)
+        const chargingCurrent = powerflow.charging_current;
+        if (typeof chargingCurrent === 'number') {
+            this.currentValueEl.textContent = `${chargingCurrent.toFixed(1)} A`;
+        } else {
+            // Fallback: Calculate total current from all phases
+            const l1 = powerflow.l1 || {};
+            const l2 = powerflow.l2 || {};
+            const l3 = powerflow.l3 || {};
+            const l1Current = l1.current || 0;
+            const l2Current = l2.current || 0;
+            const l3Current = l3.current || 0;
+            const totalCurrent = l1Current + l2Current + l3Current;
+            if (totalCurrent > 0) {
+                this.currentValueEl.textContent = `${totalCurrent.toFixed(1)} A`;
+            } else if (statusCode === 3) {
+                this.currentValueEl.textContent = '0.0 A';
+            }
         }
 
-        // Get voltage (use L1 voltage as reference, or max of all phases)
-        const voltage = Math.max(l1.voltage || 0, l2.voltage || 0, l3.voltage || 0);
-        if (voltage > 0) {
-            this.voltageValueEl.textContent = `${voltage.toFixed(0)} V`;
+        // Use charging_voltage from powerflow (average of all phase-voltages)
+        const chargingVoltage = powerflow.charging_voltage;
+        if (typeof chargingVoltage === 'number' && chargingVoltage > 0) {
+            this.voltageValueEl.textContent = `${chargingVoltage.toFixed(0)} V`;
+        } else {
+            // Fallback: Get voltage from phases
+            const l1 = powerflow.l1 || {};
+            const l2 = powerflow.l2 || {};
+            const l3 = powerflow.l3 || {};
+            const voltage = Math.max(l1.voltage || 0, l2.voltage || 0, l3.voltage || 0);
+            if (voltage > 0) {
+                this.voltageValueEl.textContent = `${voltage.toFixed(0)} V`;
+            }
         }
 
         // Update temperature (housing temperature)

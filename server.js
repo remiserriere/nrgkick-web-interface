@@ -180,9 +180,14 @@ function handleRequest(req, res) {
 
         const targetPath = pathname.substring(4) + url.search; // Remove '/api' prefix, keep the rest
         
-        // Build auth header from environment variables if configured
+        // Build auth header - priority: client Authorization header > environment variables
         let authHeader = null;
-        if (NRGKICK_USER && NRGKICK_PASS) {
+        
+        // Check if client sent an Authorization header
+        if (req.headers.authorization) {
+            authHeader = req.headers.authorization;
+        } else if (NRGKICK_USER && NRGKICK_PASS) {
+            // Fallback to environment variables
             const credentials = Buffer.from(`${NRGKICK_USER}:${NRGKICK_PASS}`).toString('base64');
             authHeader = `Basic ${credentials}`;
         }
