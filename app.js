@@ -396,6 +396,11 @@ class NRGKickController {
         const powerflow = values.powerflow || {};
         const temperatures = values.temperatures || {};
 
+        // Extract phase data once for reuse
+        const l1 = powerflow.l1 || {};
+        const l2 = powerflow.l2 || {};
+        const l3 = powerflow.l3 || {};
+
         // Get charging state from status code
         const statusCode = general.status;
         this.updateChargingState(statusCode);
@@ -418,19 +423,12 @@ class NRGKickController {
             this.totalEnergyEl.textContent = `${(totalEnergy / 1000).toFixed(2)} kWh`;
         }
 
-        // Use charging_current from powerflow (max current signaled to EV)
+        // Update current display - prefer charging_current, fallback to sum of phase currents
         const chargingCurrent = powerflow.charging_current;
         if (typeof chargingCurrent === 'number') {
             this.currentValueEl.textContent = `${chargingCurrent.toFixed(1)} A`;
         } else {
-            // Fallback: Calculate total current from all phases
-            const l1 = powerflow.l1 || {};
-            const l2 = powerflow.l2 || {};
-            const l3 = powerflow.l3 || {};
-            const l1Current = l1.current || 0;
-            const l2Current = l2.current || 0;
-            const l3Current = l3.current || 0;
-            const totalCurrent = l1Current + l2Current + l3Current;
+            const totalCurrent = (l1.current || 0) + (l2.current || 0) + (l3.current || 0);
             if (totalCurrent > 0) {
                 this.currentValueEl.textContent = `${totalCurrent.toFixed(1)} A`;
             } else if (statusCode === 3) {
@@ -438,18 +436,14 @@ class NRGKickController {
             }
         }
 
-        // Use charging_voltage from powerflow (average of all phase-voltages)
+        // Update voltage display - prefer charging_voltage, fallback to max phase voltage
         const chargingVoltage = powerflow.charging_voltage;
         if (typeof chargingVoltage === 'number' && chargingVoltage > 0) {
             this.voltageValueEl.textContent = `${chargingVoltage.toFixed(0)} V`;
         } else {
-            // Fallback: Get voltage from phases
-            const l1 = powerflow.l1 || {};
-            const l2 = powerflow.l2 || {};
-            const l3 = powerflow.l3 || {};
-            const voltage = Math.max(l1.voltage || 0, l2.voltage || 0, l3.voltage || 0);
-            if (voltage > 0) {
-                this.voltageValueEl.textContent = `${voltage.toFixed(0)} V`;
+            const maxVoltage = Math.max(l1.voltage || 0, l2.voltage || 0, l3.voltage || 0);
+            if (maxVoltage > 0) {
+                this.voltageValueEl.textContent = `${maxVoltage.toFixed(0)} V`;
             }
         }
 
